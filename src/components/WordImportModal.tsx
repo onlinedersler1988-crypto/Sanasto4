@@ -1,22 +1,18 @@
 import { useMemo, useState } from 'react';
-import { Camera, ClipboardPaste, Image as ImageIcon, Loader2, Sparkles, Upload } from 'lucide-react';
-import { createWorker } from 'tesseract.js';
+import { Camera, ClipboardPaste, ExternalLink, Image as ImageIcon, Loader2, Sparkles, Upload } from 'lucide-react';
 import ImportReviewPanel from '@/components/ImportReviewPanel';
 import GoogleAiTranslatePanel from '@/components/GoogleAiTranslatePanel';
 import Modal from '@/components/Modal';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { parseOfficeImport } from '@/lib/officeImport';
-import { extractPdfText } from '@/lib/pdfImport';
 import {
   buildImportPreview,
-  detectImportFormat,
   guessMapping,
-  IMPORT_MAX_BYTES,
   parseImportFile,
   type ColumnMapping,
   type ImportDefaults,
   type ParsedTable,
 } from '@/lib/wordImport';
+import { GOOGLE_AI_IMPORT_PROMPT, GOOGLE_AI_MODE_SEARCH_URL } from '@/lib/googleAiMode';
 import type { WordFormValues } from '@/lib/vocabulary';
 
 interface WordImportModalProps {
@@ -24,7 +20,7 @@ interface WordImportModalProps {
   defaultCategoryId?: string | null;
 }
 
-type Phase = 'pick' | 'extracting' | 'review' | 'running' | 'generating_images' | 'done';
+type Phase = 'pick' | 'review' | 'running' | 'generating_images' | 'done';
 type InputMode = 'paste' | 'file' | 'camera' | 'photo';
 
 const MODE_TABS: { value: InputMode; label: string; icon: typeof Upload }[] = [
@@ -73,58 +69,8 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
     }
   };
 
-  const handlePhoto = async (file: File | undefined) => {
-    if (!file) return;
-    setPickError(null);
-    setPhase('extracting');
-    let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
-    try {
-      worker = await createWorker('fin+tur');
-      const { data } = await worker.recognize(file);
-      const text = data.text.trim();
-      if (!isLikelyReadableOcrText(text, data.confidence)) {
-        throw new Error('Görselden metin düzgün okunamadı. Lütfen daha net bir fotoğraf deneyin veya görseli doğrudan Google AI Mode\'a yükleyin.');
-      }
-      setExtractedText(text);
-      setPhase('pick');
-    } catch (error) {
-      setPhase('pick');
-      setPickError(error instanceof Error ? error.message : 'Fotoğraftaki metin okunamadı.');
-    } finally {
-      await worker?.terminate();
-    }
-  };
-
-  const handleFile = async (file: File | undefined) => {
-    if (!file) return;
-    setPickError(null);
-    if (file.size > IMPORT_MAX_BYTES) {
-      setPickError('Dosya 5 MB\'tan büyük. Daha küçük parçalara bölerek yükleyin.');
-      return;
-    }
-    const format = detectImportFormat(file.name);
-    if (!format) {
-      setPickError('Bu dosya türü desteklenmiyor. CSV, TXT veya JSON dosyası yükleyin.');
-      return;
-    }
-    setPhase('extracting');
-    try {
-      let text: string;
-      if (format === 'pdf') {
-        text = await extractPdfText(await file.arrayBuffer());
-      } else if (format === 'xlsx' || format === 'docx') {
-        const parsed = await parseOfficeImport(await file.arrayBuffer(), format);
-        text = parsedToText(parsed);
-      } else {
-        text = await file.text();
-      }
-      if (!text.trim()) throw new Error('Dosyada okunabilir metin bulunamadı.');
-      setExtractedText(text.trim());
-      setPhase('pick');
-    } catch (error) {
-      setPhase('pick');
-      setPickError(error instanceof Error ? error.message : 'Dosya okunamadı.');
-    }
+  const openGoogleAiImport = () => {
+    window.open(`${GOOGLE_AI_MODE_SEARCH_URL}${encodeURIComponent(GOOGLE_AI_IMPORT_PROMPT)}`, '_blank', 'noopener,noreferrer');
   };
 
   const handleStart = async () => {
@@ -159,18 +105,9 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
     setPhase('pick');
   };
 
-  const showTextarea = inputMode === 'paste' || extractedText.trim().length > 0;
-  const isImageMode = inputMode === 'camera' || inputMode === 'photo';
 
   return (
     <Modal title="Toplu kelime ekle" onClose={onClose} maxWidthClass="max-w-4xl">
-      {phase === 'extracting' && (
-        <div className="flex flex-col items-center justify-center gap-4 py-16" role="status">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-700" />
-          <p className="font-semibold text-slate-800">Metin çıkarılıyor...</p>
-        </div>
-      )}
-
       {phase === 'pick' && (
         <div className="space-y-5">
           <div role="tablist" className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 sm:grid-cols-4">
@@ -225,66 +162,27 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
             </div>
           )}
 
-          {(inputMode === 'file' || inputMode === 'camera' || inputMode === 'photo') && !showTextarea && (
-            <div className="space-y-3">
-              <p className="text-sm leading-relaxed text-slate-600">
-                {isImageMode
-                  ? 'Fotoğraftaki kelime listesini okuyup metne dönüştürelim. Çıkan metni Google AI Mode ile çevirip uygulamaya yapıştırabilirsiniz.'
-                  : 'CSV, TXT, JSON, Excel (XLSX), Word (DOCX) veya PDF dosyası seçin. Dosyadaki metin çıkarıldıktan sonra Google AI Mode ile çevirip uygulamaya yapıştırabilirsiniz.'}
-              </p>
-              <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center transition hover:border-blue-400 hover:bg-blue-50">
-                {inputMode === 'camera' ? <Camera className="h-8 w-8 text-blue-700" aria-hidden="true" /> : inputMode === 'photo' ? <ImageIcon className="h-8 w-8 text-blue-700" aria-hidden="true" /> : <Upload className="h-8 w-8 text-blue-700" aria-hidden="true" />}
-                <span className="font-semibold text-slate-800">{inputMode === 'camera' ? 'Fotoğraf çekmek için dokunun' : inputMode === 'photo' ? 'Telefondan fotoğraf seçin' : 'Dosya seçmek için tıklayın'}</span>
-                <span className="text-xs text-slate-500">{isImageMode ? 'JPG, PNG veya WEBP, en fazla 5 MB' : 'CSV, TXT, JSON, XLSX, DOCX veya PDF, en fazla 5 MB'}</span>
-                <span className="max-w-md text-xs leading-relaxed text-slate-500">
-                  Not: Ücretsiz metin okuma (OCR) teknolojisi görselin netliğine bağlıdır. Çıkan metin çok bozuk olursa, görseli doğrudan Google AI Mode'a yükleyerek daha doğru sonuç alabilirsiniz.
-                </span>
-                <input
-                  type="file"
-                  accept={isImageMode ? 'image/*' : '.csv,.txt,.json,.xlsx,.docx,.pdf,application/pdf,text/csv,text/plain,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
-                  capture={inputMode === 'camera' ? 'environment' : undefined}
-                  className="sr-only"
-                  onChange={(event) => {
-                    void (isImageMode ? handlePhoto(event.target.files?.[0]) : handleFile(event.target.files?.[0]));
-                    event.target.value = '';
-                  }}
-                />
-              </label>
-            </div>
-          )}
-
-          {(inputMode === 'file' || inputMode === 'camera' || inputMode === 'photo') && showTextarea && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
+          {(inputMode === 'file' || inputMode === 'camera' || inputMode === 'photo') && (
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-blue-700 shadow-sm">
+                {inputMode === 'camera' ? <Camera className="h-7 w-7" aria-hidden="true" /> : inputMode === 'photo' ? <ImageIcon className="h-7 w-7" aria-hidden="true" /> : <Upload className="h-7 w-7" aria-hidden="true" />}
+              </div>
+              <div className="space-y-2">
+                <p className="font-semibold text-slate-800">Metni Google AI Mode ile çıkarın ve çevirin</p>
                 <p className="text-sm leading-relaxed text-slate-600">
-                  {isImageMode ? 'Fotoğraftan çıkarılan metin aşağıda. Gerekirse düzenleyin.' : 'Dosyadan çıkarılan metin aşağıda. Gerekirse düzenleyin.'}
+                  Google AI Mode açıldıktan sonra yüklemek istediğiniz görseli veya belgeyi Google'a ekleyin.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setExtractedText('')}
-                  className="text-sm font-semibold text-slate-500 transition hover:text-slate-700"
-                >
-                  Temizle
-                </button>
               </div>
-              <GoogleAiTranslatePanel initialText={extractedText} />
-              <textarea
-                value={extractedText}
-                onChange={(event) => setExtractedText(event.target.value)}
-                rows={10}
-                placeholder={'kissa - kedi\nkoira - köpek\nomena - elma'}
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-mono text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              />
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={handlePreview}
-                  disabled={extractedText.trim() === ''}
-                  className="rounded-xl bg-blue-700 px-6 py-3 font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:opacity-50"
-                >
-                  Önizle
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={openGoogleAiImport}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white transition hover:bg-slate-700"
+              >
+                <ExternalLink className="h-4 w-4" aria-hidden="true" /> Google AI Mode'da Çevir
+              </button>
+              <p className="text-xs leading-relaxed text-slate-500">
+                Google AI Mode açıldı. Lütfen yüklemek istediğiniz görseli/belgeyi Google'a yükleyin. Gerekli komut arama çubuğuna otomatik yazıldı.
+              </p>
             </div>
           )}
 
@@ -389,21 +287,4 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
       )}
     </Modal>
   );
-}
-
-function parsedToText(parsed: ParsedTable): string {
-  const lines = [parsed.headers.join('\t')];
-  for (const row of parsed.rows) {
-    lines.push(row.join('\t'));
-  }
-  return lines.join('\n');
-}
-
-function isLikelyReadableOcrText(text: string, confidence: number): boolean {
-  const compactText = text.replace(/\s/g, '');
-  const letters = [...text].filter((character) => /\p{L}/u.test(character)).length;
-  const words = text.split(/\s+/).filter((word) => /\p{L}/u.test(word)).length;
-  const symbolRatio = compactText.length === 0 ? 1 : 1 - letters / compactText.length;
-
-  return confidence >= 35 && letters >= 8 && (words >= 2 || letters >= 12) && symbolRatio <= 0.45;
 }

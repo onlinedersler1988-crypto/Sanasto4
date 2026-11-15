@@ -1,6 +1,6 @@
 import { normalizeFinnish, type Category, type Word, type WordFormValues } from '@/lib/vocabulary';
 
-export type ImportFormat = 'txt' | 'csv' | 'json' | 'xlsx' | 'docx' | 'pdf';
+export type ImportFormat = 'txt' | 'csv' | 'json';
 
 export type ImportTarget = 'finnish' | 'turkish' | 'category';
 
@@ -46,24 +46,7 @@ export interface ImportStatusCounts {
   invalid: number;
 }
 
-export const IMPORT_MAX_BYTES = 5 * 1024 * 1024;
-
 const DELIMITERS = /[\t|;,\-–—]/;
-
-const FORMAT_EXTENSIONS: Record<string, ImportFormat> = {
-  txt: 'txt',
-  csv: 'csv',
-  json: 'json',
-  xlsx: 'xlsx',
-  docx: 'docx',
-  pdf: 'pdf',
-};
-
-export function detectImportFormat(filename: string): ImportFormat | null {
-  const lower = filename.toLowerCase();
-  const ext = lower.slice(lower.lastIndexOf('.') + 1);
-  return FORMAT_EXTENSIONS[ext] ?? null;
-}
 
 const HEADER_KEYWORDS = new Set([
   'finnish', 'fin', 'fi', 'fince', 'suomi',
@@ -140,18 +123,6 @@ export function parseImportFile(text: string, format: ImportFormat): ParsedTable
   if (format === 'json') return parseJsonText(trimmed);
   if (format === 'csv') return parseCsvText(trimmed);
   return parseDelimitedText(trimmed);
-}
-
-export function parseGridTable(grid: string[][]): ParsedTable {
-  if (grid.length === 0) {
-    return { headers: [], rows: [] };
-  }
-  const headers = grid[0].map((cell) => cell.trim());
-  const rows = grid.slice(1).map((row) => {
-    const cells = headers.map((_, index) => (row[index] ?? '').trim());
-    return cells;
-  });
-  return { headers, rows };
 }
 
 export function guessMapping(headers: string[]): ColumnMapping {
