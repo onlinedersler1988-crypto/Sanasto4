@@ -77,16 +77,21 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
     if (!file) return;
     setPickError(null);
     setPhase('extracting');
+    let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
     try {
-      const worker = await createWorker('eng');
+      worker = await createWorker('fin+tur');
       const { data } = await worker.recognize(file);
-      await worker.terminate();
-      if (!data.text.trim()) throw new Error('Fotoğrafta okunabilir metin bulunamadı.');
-      setExtractedText(data.text.trim());
+      const text = data.text.trim();
+      if (!isLikelyReadableOcrText(text, data.confidence)) {
+        throw new Error('Görselden metin düzgün okunamadı. Lütfen daha net bir fotoğraf deneyin veya görseli doğrudan Google AI Mode\'a yükleyin.');
+      }
+      setExtractedText(text);
       setPhase('pick');
     } catch (error) {
       setPhase('pick');
       setPickError(error instanceof Error ? error.message : 'Fotoğraftaki metin okunamadı.');
+    } finally {
+      await worker?.terminate();
     }
   };
 
@@ -231,6 +236,9 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
                 {inputMode === 'camera' ? <Camera className="h-8 w-8 text-blue-700" aria-hidden="true" /> : inputMode === 'photo' ? <ImageIcon className="h-8 w-8 text-blue-700" aria-hidden="true" /> : <Upload className="h-8 w-8 text-blue-700" aria-hidden="true" />}
                 <span className="font-semibold text-slate-800">{inputMode === 'camera' ? 'Fotoğraf çekmek için dokunun' : inputMode === 'photo' ? 'Telefondan fotoğraf seçin' : 'Dosya seçmek için tıklayın'}</span>
                 <span className="text-xs text-slate-500">{isImageMode ? 'JPG, PNG veya WEBP, en fazla 5 MB' : 'CSV, TXT, JSON, XLSX, DOCX veya PDF, en fazla 5 MB'}</span>
+                <span className="max-w-md text-xs leading-relaxed text-slate-500">
+                  Not: Ücretsiz metin okuma (OCR) teknolojisi görselin netliğine bağlıdır. Çıkan metin çok bozuk olursa, görseli doğrudan Google AI Mode'a yükleyerek daha doğru sonuç alabilirsiniz.
+                </span>
                 <input
                   type="file"
                   accept={isImageMode ? 'image/*' : '.csv,.txt,.json,.xlsx,.docx,.pdf,application/pdf,text/csv,text/plain,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
@@ -389,4 +397,13 @@ function parsedToText(parsed: ParsedTable): string {
     lines.push(row.join('\t'));
   }
   return lines.join('\n');
+}
+
+function isLikelyReadableOcrText(text: string, confidence: number): boolean {
+  const compactText = text.replace(/\s/g, '');
+  const letters = [...text].filter((character) => /\p{L}/u.test(character)).length;
+  const words = text.split(/\s+/).filter((word) => /\p{L}/u.test(word)).length;
+  const symbolRatio = compactText.length === 0 ? 1 : 1 - letters / compactText.length;
+
+  return confidence >= 35 && letters >= 8 && (words >= 2 || letters >= 12) && symbolRatio <= 0.45;
 }
