@@ -3,18 +3,10 @@ export const GOOGLE_AI_MODE_SEARCH_URL = 'https://www.google.com/search?udm=50&q
 export function buildTranslationPrompt(wordsText: string): string {
   const trimmed = wordsText.trim();
   if (!trimmed) return '';
-  const words = trimmed
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  if (words.length === 0) return '';
-  const list = words.map((word) => `- ${word}`).join('\n');
   return [
-    'Aşağıdaki kelimelerin veya ifadelerin Fince karşılıklarını bul.',
-    'Her satırı "Fince - Türkçe" biçiminde yaz (örnek: omena - elma).',
-    'Yalnızca çeviriyi ver, açıklama ekleme.',
+    'Lütfen aşağıdaki metni incele. Metindeki Fince kelimeleri cümle içindeki çekim eklerinden (durum ekleri, çoğul ekleri vb.) arındırarak yalın hallerine (perusmuoto) getir. Eğer metin Türkçe ise, Türkçe kelimeleri de yalın hallerine ayıkla. Ardından, elde ettiğin bu yalın kelimeleri sadece \'Fince - Türkçe\' formatında, alt alta yeni bir liste olarak yaz. Başka hiçbir açıklama veya cümle ekleme, sadece listeyi ver.',
     '',
-    'Kelimeler:',
-    list,
+    'Metin:',
+    trimmed,
   ].join('\n');
 }

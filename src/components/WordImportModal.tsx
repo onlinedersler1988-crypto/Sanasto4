@@ -199,7 +199,7 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
                 Her satıra bir kelime yazın: "Fince - Türkçe". Ayraç olarak tab, | veya ; de kullanabilirsiniz. Dil
                 seviyesi bir sonraki adımda seçilir.
               </p>
-              <GoogleAiTranslatePanel />
+              <GoogleAiTranslatePanel initialText={extractedText} />
               <textarea
                 value={extractedText}
                 onChange={(event) => setExtractedText(event.target.value)}
@@ -259,7 +259,7 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
                   Temizle
                 </button>
               </div>
-              <GoogleAiTranslatePanel />
+              <GoogleAiTranslatePanel initialText={extractedText} />
               <textarea
                 value={extractedText}
                 onChange={(event) => setExtractedText(event.target.value)}

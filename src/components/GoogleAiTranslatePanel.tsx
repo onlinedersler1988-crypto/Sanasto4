@@ -1,10 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, Copy, ExternalLink } from 'lucide-react';
 import { buildTranslationPrompt, GOOGLE_AI_MODE_SEARCH_URL } from '@/lib/googleAiMode';
 
-export default function GoogleAiTranslatePanel() {
-  const [wordsText, setWordsText] = useState('');
+interface GoogleAiTranslatePanelProps {
+  initialText?: string;
+}
+
+export default function GoogleAiTranslatePanel({ initialText = '' }: GoogleAiTranslatePanelProps) {
+  const [wordsText, setWordsText] = useState(initialText);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+
+  useEffect(() => {
+    setWordsText(initialText);
+  }, [initialText]);
+
   const prompt = buildTranslationPrompt(wordsText);
 
   const openAiMode = () => {
@@ -28,14 +37,14 @@ export default function GoogleAiTranslatePanel() {
       <div className="space-y-1">
         <p className="text-sm font-semibold text-slate-800">Google AI Mode ile toplu çeviri</p>
         <p className="text-xs leading-relaxed text-slate-600">
-          Çevirmek istediğiniz kelimeleri alt alta yazın. Google AI Mode karşılıklarını "Fince - Türkçe" biçiminde hazırlar;
+          Çevirmek istediğiniz kelimeleri alt alta yazın. Google AI Mode kelimeleri yalın hallerine getirir ve "Fince - Türkçe" biçiminde listeler;
           çıkan listeyi kopyalayıp aşağıdaki kutuya yapıştırın.
         </p>
       </div>
       <textarea
         value={wordsText}
         onChange={(event) => setWordsText(event.target.value)}
-        maxLength={3000}
+        maxLength={5000}
         rows={4}
         aria-label="Çevrilecek kelimeler"
         placeholder={'kissa\nkoti\nomena'}
