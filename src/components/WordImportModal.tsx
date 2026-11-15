@@ -24,7 +24,7 @@ interface WordImportModalProps {
   defaultCategoryId?: string | null;
 }
 
-type Phase = 'pick' | 'review' | 'running' | 'generating_images' | 'done';
+type Phase = 'pick' | 'extracting' | 'review' | 'running' | 'generating_images' | 'done';
 type InputMode = 'paste' | 'file' | 'camera' | 'photo';
 
 const MODE_TABS: { value: InputMode; label: string; icon: typeof Upload }[] = [
@@ -40,7 +40,7 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
   const [phase, setPhase] = useState<Phase>('pick');
   const [inputMode, setInputMode] = useState<InputMode>('paste');
   const [pickError, setPickError] = useState<string | null>(null);
-  const [pasteText, setPasteText] = useState('');
+  const [extractedText, setExtractedText] = useState('');
   const [table, setTable] = useState<ParsedTable | null>(null);
   const [mapping, setMapping] = useState<ColumnMapping>({});
   const [defaults, setDefaults] = useState<ImportDefaults>(initialDefaults);
@@ -64,10 +64,10 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
     setPhase('review');
   };
 
-  const handlePaste = () => {
+  const handlePreview = () => {
     setPickError(null);
     try {
-      loadParsedTable(parseImportFile(pasteText, 'txt'));
+      loadParsedTable(parseImportFile(extractedText, 'txt'));
     } catch (error) {
       setPickError(error instanceof Error ? error.message : 'Metin okunamadı.');
     }
@@ -76,13 +76,14 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
   const handlePhoto = async (file: File | undefined) => {
     if (!file) return;
     setPickError(null);
-    setPhase('running');
+    setPhase('extracting');
     try {
       const worker = await createWorker('eng');
       const { data } = await worker.recognize(file);
       await worker.terminate();
       if (!data.text.trim()) throw new Error('Fotoğrafta okunabilir metin bulunamadı.');
-      loadParsedTable(parseImportFile(data.text, 'txt'));
+      setExtractedText(data.text.trim());
+      setPhase('pick');
     } catch (error) {
       setPhase('pick');
       setPickError(error instanceof Error ? error.message : 'Fotoğraftaki metin okunamadı.');
@@ -101,15 +102,22 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
       setPickError('Bu dosya türü desteklenmiyor. CSV, TXT veya JSON dosyası yükleyin.');
       return;
     }
+    setPhase('extracting');
     try {
-      const parsed =
-        format === 'pdf'
-          ? parseImportFile(await extractPdfText(await file.arrayBuffer()), 'txt')
-          : format === 'xlsx' || format === 'docx'
-            ? await parseOfficeImport(await file.arrayBuffer(), format)
-            : parseImportFile(await file.text(), format);
-      loadParsedTable(parsed);
+      let text: string;
+      if (format === 'pdf') {
+        text = await extractPdfText(await file.arrayBuffer());
+      } else if (format === 'xlsx' || format === 'docx') {
+        const parsed = await parseOfficeImport(await file.arrayBuffer(), format);
+        text = parsedToText(parsed);
+      } else {
+        text = await file.text();
+      }
+      if (!text.trim()) throw new Error('Dosyada okunabilir metin bulunamadı.');
+      setExtractedText(text.trim());
+      setPhase('pick');
     } catch (error) {
+      setPhase('pick');
       setPickError(error instanceof Error ? error.message : 'Dosya okunamadı.');
     }
   };
@@ -146,8 +154,18 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
     setPhase('pick');
   };
 
+  const showTextarea = inputMode === 'paste' || extractedText.trim().length > 0;
+  const isImageMode = inputMode === 'camera' || inputMode === 'photo';
+
   return (
     <Modal title="Toplu kelime ekle" onClose={onClose} maxWidthClass="max-w-4xl">
+      {phase === 'extracting' && (
+        <div className="flex flex-col items-center justify-center gap-4 py-16" role="status">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-700" />
+          <p className="font-semibold text-slate-800">Metin çıkarılıyor...</p>
+        </div>
+      )}
+
       {phase === 'pick' && (
         <div className="space-y-5">
           <div role="tablist" className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 sm:grid-cols-4">
@@ -163,6 +181,7 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
                   onClick={() => {
                     setInputMode(tab.value);
                     setPickError(null);
+                    setExtractedText('');
                   }}
                   className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
                     active ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'
@@ -182,8 +201,8 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
               </p>
               <GoogleAiTranslatePanel />
               <textarea
-                value={pasteText}
-                onChange={(event) => setPasteText(event.target.value)}
+                value={extractedText}
+                onChange={(event) => setExtractedText(event.target.value)}
                 rows={10}
                 placeholder={'kissa - kedi\nkoira - köpek\nomena - elma'}
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-mono text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
@@ -191,8 +210,8 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
               <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={handlePaste}
-                  disabled={pasteText.trim() === ''}
+                  onClick={handlePreview}
+                  disabled={extractedText.trim() === ''}
                   className="rounded-xl bg-blue-700 px-6 py-3 font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:opacity-50"
                 >
                   Önizle
@@ -201,28 +220,63 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
             </div>
           )}
 
-          {(inputMode === 'file' || inputMode === 'camera' || inputMode === 'photo') && (
+          {(inputMode === 'file' || inputMode === 'camera' || inputMode === 'photo') && !showTextarea && (
             <div className="space-y-3">
               <p className="text-sm leading-relaxed text-slate-600">
-                {inputMode === 'camera' || inputMode === 'photo'
-                  ? 'Fotoğraftaki kelime listesini okuyup önizlemeye dönüştürelim. Her satırda Fince ve Türkçe karşılığı bulunması en iyi sonucu verir.'
-                  : 'CSV, TXT, JSON, Excel (XLSX), Word (DOCX) veya PDF dosyası seçin. Tabloda ilk satır sütun başlığı olmalıdır. PDF dosyalarında da metin tabanlı olmalı; her satır "Fince - Türkçe" biçiminde olabilir.'}
+                {isImageMode
+                  ? 'Fotoğraftaki kelime listesini okuyup metne dönüştürelim. Çıkan metni Google AI Mode ile çevirip uygulamaya yapıştırabilirsiniz.'
+                  : 'CSV, TXT, JSON, Excel (XLSX), Word (DOCX) veya PDF dosyası seçin. Dosyadaki metin çıkarıldıktan sonra Google AI Mode ile çevirip uygulamaya yapıştırabilirsiniz.'}
               </p>
               <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center transition hover:border-blue-400 hover:bg-blue-50">
                 {inputMode === 'camera' ? <Camera className="h-8 w-8 text-blue-700" aria-hidden="true" /> : inputMode === 'photo' ? <ImageIcon className="h-8 w-8 text-blue-700" aria-hidden="true" /> : <Upload className="h-8 w-8 text-blue-700" aria-hidden="true" />}
                 <span className="font-semibold text-slate-800">{inputMode === 'camera' ? 'Fotoğraf çekmek için dokunun' : inputMode === 'photo' ? 'Telefondan fotoğraf seçin' : 'Dosya seçmek için tıklayın'}</span>
-                <span className="text-xs text-slate-500">{inputMode === 'camera' || inputMode === 'photo' ? 'JPG, PNG veya WEBP, en fazla 5 MB' : 'CSV, TXT, JSON, XLSX, DOCX veya PDF, en fazla 5 MB'}</span>
+                <span className="text-xs text-slate-500">{isImageMode ? 'JPG, PNG veya WEBP, en fazla 5 MB' : 'CSV, TXT, JSON, XLSX, DOCX veya PDF, en fazla 5 MB'}</span>
                 <input
                   type="file"
-                  accept={inputMode === 'camera' || inputMode === 'photo' ? 'image/*' : '.csv,.txt,.json,.xlsx,.docx,.pdf,application/pdf,text/csv,text/plain,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
+                  accept={isImageMode ? 'image/*' : '.csv,.txt,.json,.xlsx,.docx,.pdf,application/pdf,text/csv,text/plain,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
                   capture={inputMode === 'camera' ? 'environment' : undefined}
                   className="sr-only"
                   onChange={(event) => {
-                    void (inputMode === 'camera' || inputMode === 'photo' ? handlePhoto(event.target.files?.[0]) : handleFile(event.target.files?.[0]));
+                    void (isImageMode ? handlePhoto(event.target.files?.[0]) : handleFile(event.target.files?.[0]));
                     event.target.value = '';
                   }}
                 />
               </label>
+            </div>
+          )}
+
+          {(inputMode === 'file' || inputMode === 'camera' || inputMode === 'photo') && showTextarea && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm leading-relaxed text-slate-600">
+                  {isImageMode ? 'Fotoğraftan çıkarılan metin aşağıda. Gerekirse düzenleyin.' : 'Dosyadan çıkarılan metin aşağıda. Gerekirse düzenleyin.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setExtractedText('')}
+                  className="text-sm font-semibold text-slate-500 transition hover:text-slate-700"
+                >
+                  Temizle
+                </button>
+              </div>
+              <GoogleAiTranslatePanel />
+              <textarea
+                value={extractedText}
+                onChange={(event) => setExtractedText(event.target.value)}
+                rows={10}
+                placeholder={'kissa - kedi\nkoira - köpek\nomena - elma'}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-mono text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handlePreview}
+                  disabled={extractedText.trim() === ''}
+                  className="rounded-xl bg-blue-700 px-6 py-3 font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:opacity-50"
+                >
+                  Önizle
+                </button>
+              </div>
             </div>
           )}
 
@@ -327,4 +381,12 @@ export default function WordImportModal({ onClose, defaultCategoryId = null }: W
       )}
     </Modal>
   );
+}
+
+function parsedToText(parsed: ParsedTable): string {
+  const lines = [parsed.headers.join('\t')];
+  for (const row of parsed.rows) {
+    lines.push(row.join('\t'));
+  }
+  return lines.join('\n');
 }
